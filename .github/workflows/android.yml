@@ -59,15 +59,7 @@ jobs:
       - name: Build installable debug APK and run lint
         run: gradle --no-daemon --stacktrace :app:assembleDebug :app:lintDebug
 
-      - name: Generate debug Digital Asset Links
-        run: |
-          python3 scripts/generate_assetlinks.py \
-            --keystore "$HOME/.android/debug.keystore" \
-            --alias androiddebugkey \
-            --storepass android \
-            --package ir.afishu.app.debug \
-            --output "$RUNNER_TEMP/assetlinks-debug.json"
-
+      # Publish the built APK even when a later asset-links validation fails.
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -75,6 +67,15 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Generate debug Digital Asset Links
+        run: |
+          python3 scripts/generate_assetlinks.py \
+            --apk app/build/outputs/apk/debug/app-debug.apk \
+            --package ir.afishu.app.debug \
+            --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
+            --aapt "$ANDROID_HOME/build-tools/35.0.0/aapt" \
+            --output "$RUNNER_TEMP/assetlinks-debug.json"
 
       - name: Upload debug Digital Asset Links
         uses: actions/upload-artifact@v4
@@ -105,10 +106,10 @@ jobs:
             -storepass "$AFISHU_KEYSTORE_PASSWORD" > /dev/null
           gradle --no-daemon --stacktrace :app:assembleRelease :app:lintRelease
           python3 scripts/generate_assetlinks.py \
-            --keystore "$AFISHU_SIGNING_STORE" \
-            --alias "$AFISHU_KEY_ALIAS" \
-            --storepass "$AFISHU_KEYSTORE_PASSWORD" \
+            --apk app/build/outputs/apk/release/app-release.apk \
             --package ir.afishu.app \
+            --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner" \
+            --aapt "$ANDROID_HOME/build-tools/35.0.0/aapt" \
             --output "$RUNNER_TEMP/assetlinks-release.json"
 
       - name: Upload release APK
@@ -128,4 +129,3 @@ jobs:
           path: ${{ runner.temp }}/assetlinks-release.json
           if-no-files-found: error
           retention-days: 14
-
