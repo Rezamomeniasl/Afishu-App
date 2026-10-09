@@ -1,0 +1,66 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'ir.afishu.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'ir.afishu.app'
+        minSdk 24
+        targetSdk 35
+        versionCode 2
+        versionName '1.0.1'
+    }
+
+    signingConfigs {
+        release {
+            def store = System.getenv('AFISHU_SIGNING_STORE')
+            def storePasswordEnv = System.getenv('AFISHU_KEYSTORE_PASSWORD')
+            def keyAliasEnv = System.getenv('AFISHU_KEY_ALIAS')
+            def keyPasswordEnv = System.getenv('AFISHU_KEY_PASSWORD')
+            if (store && storePasswordEnv && keyAliasEnv && keyPasswordEnv) {
+                storeFile file(store)
+                storePassword storePasswordEnv
+                keyAlias keyAliasEnv
+                keyPassword keyPasswordEnv
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            debuggable false
+            // The release task is intentionally restricted to a persistent signing key.
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+        }
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+            debuggable true
+        }
+    }
+
+    buildFeatures {
+        buildConfig false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError true
+        warningsAsErrors false
+        checkReleaseBuilds true
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.3'
+}
