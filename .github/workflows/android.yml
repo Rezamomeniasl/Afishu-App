@@ -1,1 +1,131 @@
+name: Build AFISHU Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'scripts/**'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Android APK and asset links
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Static Android project checks
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, xml.etree.ElementTree as ET
+          manifest = ET.parse('app/src/main/AndroidManifest.xml')
+          activities = manifest.findall('.//activity')
+          assert any(a.attrib.get('{http://schemas.android.com/apk/res/android}name') == 'ir.afishu.app.AfishuLauncherActivity' for a in activities)
+          ET.parse('app/src/main/res/values/strings.xml')
+          ET.parse('app/src/main/res/values/styles.xml')
+          print('Android manifest and resources are valid XML')
+          PY
+
+      - name: Build installable debug APK and run lint
+        run: gradle --no-daemon --stacktrace :app:assembleDebug :app:lintDebug
+
+      - name: Generate debug Digital Asset Links
+        run: |
+          python3 scripts/generate_assetlinks.py \
+            --keystore "$HOME/.android/debug.keystore" \
+            --alias androiddebugkey \
+            --storepass android \
+            --package ir.afishu.app.debug \
+            --output "$RUNNER_TEMP/assetlinks-debug.json"
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AFISHU-Android-debug-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload debug Digital Asset Links
+        uses: actions/upload-artifact@v4
+        with:
+          name: AFISHU-Digital-Asset-Links-debug
+          path: ${{ runner.temp }}/assetlinks-debug.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build production-signed APK when signing secrets are configured
+        env:
+          SIGNING_BASE64: ${{ secrets.AFISHU_KEYSTORE_BASE64 }}
+          AFISHU_KEYSTORE_PASSWORD: ${{ secrets.AFISHU_KEYSTORE_PASSWORD }}
+          AFISHU_KEY_ALIAS: ${{ secrets.AFISHU_KEY_ALIAS }}
+          AFISHU_KEY_PASSWORD: ${{ secrets.AFISHU_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_BASE64" || -z "$AFISHU_KEYSTORE_PASSWORD" || -z "$AFISHU_KEY_ALIAS" || -z "$AFISHU_KEY_PASSWORD" ]]; then
+            echo 'Release signing secrets not provided; skipping production release APK.'
+            exit 0
+          fi
+          export AFISHU_SIGNING_STORE="$RUNNER_TEMP/afishu-signing.jks"
+          trap 'rm -f "$AFISHU_SIGNING_STORE"' EXIT
+          printf '%s' "$SIGNING_BASE64" | base64 --decode > "$AFISHU_SIGNING_STORE"
+          chmod 600 "$AFISHU_SIGNING_STORE"
+          keytool -list -keystore "$AFISHU_SIGNING_STORE" -alias "$AFISHU_KEY_ALIAS" \
+            -storepass "$AFISHU_KEYSTORE_PASSWORD" > /dev/null
+          gradle --no-daemon --stacktrace :app:assembleRelease :app:lintRelease
+          python3 scripts/generate_assetlinks.py \
+            --keystore "$AFISHU_SIGNING_STORE" \
+            --alias "$AFISHU_KEY_ALIAS" \
+            --storepass "$AFISHU_KEYSTORE_PASSWORD" \
+            --package ir.afishu.app \
+            --output "$RUNNER_TEMP/assetlinks-release.json"
+
+      - name: Upload release APK
+        if: ${{ hashFiles('app/build/outputs/apk/release/app-release.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: AFISHU-Android-release-APK
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload release Digital Asset Links
+        if: ${{ hashFiles('app/build/outputs/apk/release/app-release.apk') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: AFISHU-Digital-Asset-Links-release
+          path: ${{ runner.temp }}/assetlinks-release.json
+          if-no-files-found: error
+          retention-days: 14
 
